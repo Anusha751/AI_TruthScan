@@ -1,29 +1,23 @@
 import streamlit as st
-import base64
 import requests
-import os
-import numpy as np
+import base64
+import threading
+import time
 import sounddevice as sd
 import wavio
-import threading
-import speech_recognition as sr
+import cv2
+import streamlit.components.v1 as components
 
-# -------------------- CONFIGURATION --------------------
 # Flask API URL
-FLASK_API_URL = "http://localhost:5000"
-
-# Supported language (English only)
-SUPPORTED_LANGUAGES = {"en": "English"}
+API_URL = "http://localhost:5000"
 
 # -------------------- SESSION STATE --------------------
 if "recording_audio" not in st.session_state:
     st.session_state["recording_audio"] = False
-if "transcription" not in st.session_state:
-    st.session_state["transcription"] = ""
-if "gaze_percentage" not in st.session_state:
-    st.session_state["gaze_percentage"] = 0.0
-if "audio_file" not in st.session_state:
-    st.session_state["audio_file"] = None
+if "recording_video" not in st.session_state:
+    st.session_state["recording_video"] = False
+if "analysis_result" not in st.session_state:
+    st.session_state["analysis_result"] = None
 
 # -------------------- TITLE --------------------
 st.title("🎙️ AI-TruthScan: Detect AI-Generated Interview Responses")
@@ -31,54 +25,78 @@ st.title("🎙️ AI-TruthScan: Detect AI-Generated Interview Responses")
 # -------------------- UPLOAD SECTION --------------------
 with st.expander("📁 Upload Audio or Video File", expanded=True):
     upload_option = st.radio("Select file type to upload", ("Audio", "Video"))
-    if upload_option == "Audio":
-        uploaded_file = st.file_uploader("Upload an audio file (mp3, wav, m4a)", type=["mp3", "wav", "m4a"])
-        if uploaded_file:
-            audio_bytes = uploaded_file.read()
-            st.session_state["audio_file"] = audio_bytes
-            b64_audio = base64.b64encode(audio_bytes).decode()
+    uploaded_file = st.file_uploader(f"Upload an {upload_option.lower()} file", 
+                                    type=["mp3", "wav", "m4a"] if upload_option == "Audio" else ["mp4", "mov"])
+    if uploaded_file:
+        file_bytes = uploaded_file.read()
+        b64_audio = base64.b64encode(file_bytes).decode()
+        if upload_option == "Audio":
             audio_html = f"""
             <audio controls>
                 <source src="data:audio/wav;base64,{b64_audio}" type="audio/wav">
             </audio>
             """
-            st.components.v1.html(audio_html, height=70)
-    else:
-        uploaded_file = st.file_uploader("Upload a video file (mp4, mov)", type=["mp4", "mov"])
-        if uploaded_file:
-            video_path = "temp_video.mp4"
-            with open(video_path, "wb") as f:
-                f.write(uploaded_file.read())
-            st.session_state["video_file"] = video_path
-            st.session_state["audio_file"] = None
+            components.html(audio_html, height=70)
 
 # -------------------- RECORDING SECTION --------------------
-with st.expander("🎧 Live Audio Recording", expanded=True):
-    if st.button("Start Audio Recording"):
-        st.session_state["recording_audio"] = True
-        st.write("Recording audio...")
-
-        def record_audio():
-            fs = 44100  # Sample rate
-            recording = []
-            with sd.InputStream(samplerate=fs, channels=1) as stream:
-                while st.session_state["recording_audio"]:
-                    data = stream.read(fs // 10)[0]  # Read in chunks
-                    recording.append(data)
-            audio_data = np.concatenate(recording, axis=0)
-            wav_path = "temp_audio.wav"
-            # Save audio as WAV file
-            wavio.write(wav_path, audio_data, fs, sampwidth=2)
-            with open(wav_path, "rb") as f:
-                st.session_state["audio_file"] = f.read()
-            os.remove(wav_path)
-            st.session_state["recording_audio"] = False
-            st.write("Audio recording complete.")
-
-        threading.Thread(target=record_audio).start()
-
-    if st.button("Stop Audio Recording"):
-        st.session_state["recording_audio"] = False
+with st.expander("🎧 Live Recording", expanded=True):
+    record_option = st.radio("Select recording type", ("Audio", "Video"))
+    
+    if record_option == "Audio":
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Start Audio Recording"):
+                st.session_state["recording_audio"] = True
+                def record_audio():
+                    fs = 44100
+                    duration = 10
+                    st.session_state["status"] = "Recording audio..."
+                    recording = sd.rec(int(duration * fs), samplerate=fs, channels=1)
+                    sd.wait()
+                    wavio.write("temp_audio.wav", recording, fs, sampwidth=2)
+                    with open("temp_audio.wav", "rb") as f:
+                        audio_bytes = f.read()
+                    st.session_state["audio_bytes"] = audio_bytes.hex()
+                    os.remove("temp_audio.wav")
+                    st.session_state["recording_audio"] = False
+                    st.session_state["status"] = "Recording complete."
+                threading.Thread(target=record_audio).start()
+        with col2:
+            if st.button("Stop Audio Recording"):
+                st.session_state["recording_audio"] = False
+        if "status" in st.session_state:
+            st.write(st.session_state["status"])
+    
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Start Video Recording"):
+                st.session_state["recording_video"] = True
+                def record_video():
+                    cap = cv2.VideoCapture(0)
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    out = cv2.VideoWriter("temp_video.mp4", fourcc, 20.0, (640, 480))
+                    st.session_state["status"] = "Recording video..."
+                    start_time = time.time()
+                    while time.time() - start_time < 10:
+                        ret, frame = cap.read()
+                        if not ret:
+                            break
+                        out.write(frame)
+                    cap.release()
+                    out.release()
+                    with open("temp_video.mp4", "rb") as f:
+                        video_bytes = f.read()
+                    st.session_state["video_bytes"] = video_bytes.hex()
+                    os.remove("temp_video.mp4")
+                    st.session_state["recording_video"] = False
+                    st.session_state["status"] = "Recording complete."
+                threading.Thread(target=record_video).start()
+        with col2:
+            if st.button("Stop Video Recording"):
+                st.session_state["recording_video"] = False
+        if "status" in st.session_state:
+            st.write(st.session_state["status"])
 
 # -------------------- ANALYSIS SECTION --------------------
 with st.expander("🧠 Analysis Settings", expanded=True):
@@ -86,50 +104,47 @@ with st.expander("🧠 Analysis Settings", expanded=True):
     threshold = st.slider("Set AI-Generated Probability Threshold (%)", 0, 100, 50)
 
 if st.button("🧠 Analyze"):
-    if st.session_state["audio_file"]:
-        with st.spinner("Analyzing..."):
-            files = {"file": ("audio.wav", st.session_state["audio_file"], "audio/wav")}
-            data = {
-                "file_type": "audio",
-                "context": context,
-                "threshold": str(threshold)
-            }
+    with st.spinner("Analyzing..."):
+        data = {"context": context, "threshold": threshold}
+        if "audio_bytes" in st.session_state:
+            data["audio_bytes"] = st.session_state["audio_bytes"]
+        elif "video_bytes" in st.session_state:
+            data["video_bytes"] = st.session_state["video_bytes"]
+        elif uploaded_file:
+            data["audio_bytes" if upload_option == "Audio" else "video_bytes"] = file_bytes.hex()
+        else:
+            st.warning("⚠️ No file or recording available.")
+            st.stop()
 
-            try:
-                response = requests.post(f"{FLASK_API_URL}/analyze", files=files, data=data)
-                result = response.json()
-                if "error" in result:
-                    st.error(f"Error: {result['error']}")
-                else:
-                    st.session_state["transcription"] = result["transcription"]
-                    st.session_state["gaze_percentage"] = result["gaze_percentage"]
-
-                    st.subheader("📊 Analysis Result")
-                    st.markdown(f"**Transcription:**\n\n{result['transcription']}")
-                    st.markdown(f"**Gaze Analysis:** Looking away {result['gaze_percentage']:.2f}% of the time")
-                    st.markdown("---")
-                    st.markdown(f"**Classification:** {result['classification']}")
-                    st.markdown(f"**Probabilities:** Real (Human-Created) - {result['human_prob']}% | Fake (AI-Generated) - {result['ai_prob']}%")
-                    st.markdown(f"**Justification:**\n\n{result['justification']}")
-            except Exception as e:
-                st.error(f"Error analyzing file: {e}")
-    else:
-        st.warning("⚠️ No audio file available for analysis.")
+        response = requests.post(f"{API_URL}/analyze", json=data)
+        if response.status_code == 200:
+            st.session_state["analysis_result"] = response.json()
+            result = st.session_state["analysis_result"]
+            st.subheader("📊 Analysis Result")
+            st.markdown(f"**Transcription:**\n\n{result['transcription']}")
+            st.markdown(f"**Gaze Analysis:** Looking away {result['gaze_percentage']:.2f}% of the time")
+            st.markdown("---")
+            st.markdown(f"**Classification:** {result['classification']}")
+            st.markdown(f"**Probabilities:** Real (Human-Created) - {result['human_prob']}% | Fake (AI-Generated) - {result['ai_prob']}%")
+            st.markdown(f"**Justification:**\n\n{result['justification']}")
+            st.success("✅ Results saved to database!")
+        else:
+            st.error(f"⚠️ Analysis failed: {response.json().get('error')}")
 
 # -------------------- VIEW SAVED RESULTS --------------------
 with st.expander("📂 View Saved Results"):
-    try:
-        response = requests.get(f"{FLASK_API_URL}/results")
+    response = requests.get(f"{API_URL}/results")
+    if response.status_code == 200:
         results = response.json()
-        for result in results:
-            st.markdown(f"**ID:** {result['id']} | **Timestamp:** {result['timestamp']}")
-            st.markdown(f"**Transcription:** {result['transcription']}")
-            st.markdown(f"**Classification:** {result['classification']}")
-            st.markdown(f"**Probabilities:** Real - {result['human_prob']}% | Fake - {result['ai_prob']}%")
-            st.markdown(f"**Justification:** {result['justification']}")
+        for row in results:
+            st.markdown(f"**ID:** {row['id']} | **Timestamp:** {row['timestamp']}")
+            st.markdown(f"**Transcription:** {row['transcription']}")
+            st.markdown(f"**Classification:** {row['classification']}")
+            st.markdown(f"**Probabilities:** Real - {row['human_prob']}% | Fake - {row['ai_prob']}%")
+            st.markdown(f"**Justification:** {row['justification']}")
             st.markdown("---")
-    except Exception as e:
-        st.error(f"Error fetching saved results: {e}")
+    else:
+        st.error("⚠️ Could not retrieve saved results.")
 
 # -------------------- DISCLAIMER --------------------
 st.markdown("---")
