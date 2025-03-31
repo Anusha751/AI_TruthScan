@@ -12,7 +12,6 @@ of candidates' responses, ensuring fair and reliable hiring decisions.
 - [Usage](#usage)
 - [API Endpoints](#api-endpoints)
 - [Database](#database)
-- [Contributors](#contributers)
 - [Tests](#tests)
 - [Future Improvements](#future-improvements)
 - [License](#license)
@@ -148,7 +147,7 @@ https://drive.google.com/file/d/1eUJZOWN5XeO3HeA1ej7Afe2amaSt7ijZ/view?usp=drive
  - Integrating with HR software for seamless recruitment workflows.
 
 ### **License**
-This project is licensed under the MIT License. See the LICENSE file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE.md) file for details.
 
 ```
 ### Notes:
