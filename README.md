@@ -140,7 +140,7 @@ https://drive.google.com/file/d/1eUJZOWN5XeO3HeA1ej7Afe2amaSt7ijZ/view?usp=drive
 
 ### **Future Improvements** 
 
- - Enhancing model accuracy for better AI detection. 
+ - Enhancing model accuracy for better AI response detection. 
 
  - Expanding dataset coverage to include more response variations. 
 
